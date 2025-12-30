@@ -1,0 +1,9 @@
+{
+  "name": "IgniteFlow: The Generative Venture Studio",
+  "description": "A comprehensive AI-powered co-founder and startup accelerator suite. IgniteFlow helps entrepreneurs validate ideas with real-time market grounding, generate high-fidelity brand assets, and practice pitches with a live AI mentor.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
