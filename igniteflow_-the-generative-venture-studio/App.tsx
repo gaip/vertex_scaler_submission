@@ -17,6 +17,7 @@ import { AppView } from './types';
 import PitchLab from './components/PitchLab';
 import MarketIntel from './components/MarketIntel';
 import BrandStudio from './components/BrandStudio';
+import StrategyRoom from './components/StrategyRoom';
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
@@ -193,14 +194,7 @@ const App: React.FC = () => {
           {currentView === AppView.MARKET_INTEL && <MarketIntel />}
           {currentView === AppView.PITCH_LAB && <PitchLab />}
           {currentView === AppView.BRAND_STUDIO && <BrandStudio />}
-          {currentView === AppView.STRATEGY_ROOM && (
-             <div className="h-full flex flex-col items-center justify-center opacity-50 space-y-6">
-                 <BookOpen className="w-20 h-20 text-blue-500" />
-                 <h2 className="text-3xl font-bold">Strategy Engine</h2>
-                 <p className="max-w-md text-center">Comprehensive business logic generator using Gemini 3 Pro reasoning. Coming soon to your venture studio.</p>
-                 <button className="px-8 py-3 border border-white/10 rounded-xl hover:bg-white/5 transition-all">Join Waitlist</button>
-             </div>
-          )}
+          {currentView === AppView.STRATEGY_ROOM && <StrategyRoom />}
         </div>
       </main>
     </div>
