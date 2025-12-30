@@ -6,7 +6,7 @@ const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 export const conductMarketResearch = async (query: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
+    model: "gemini-3-flash",
     contents: `Conduct a deep competitive analysis and market size estimation for the following startup idea: ${query}. Focus on current trends (2024-2025).`,
     config: {
       tools: [{ googleSearch: {} }],
@@ -27,7 +27,7 @@ export const conductMarketResearch = async (query: string) => {
 export const generateStartupStrategy = async (idea: string) => {
   const ai = getAI();
   const response = await ai.models.generateContent({
-    model: "gemini-3-pro-preview",
+    model: "gemini-3-pro",
     contents: `Generate a detailed Lean Canvas, GTM strategy, and potential pitfalls for: ${idea}`,
     config: {
       thinkingConfig: { thinkingBudget: 2000 },
