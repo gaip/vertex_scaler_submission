@@ -1,5 +1,6 @@
+
 import React, { useState } from "react";
-import { GoogleGenAI } from "@google/genai";
+import { VertexAI } from "@google-cloud/vertexai";
 import {
   BookOpen,
   Loader2,
@@ -61,22 +62,32 @@ const StrategyRoom: React.FC = () => {
     const startTime = Date.now();
 
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
-      const response = await ai.models.generateContent({
-        model: "gemini-3-pro-preview",
-        contents: `Analyze this startup idea and generate a comprehensive strategic document:\n\n${idea}`,
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
-          thinkingConfig: { thinkingBudget: 4000 },
-          maxOutputTokens: 8000,
-        },
+      const vertex_ai = new VertexAI({
+        project: process.env.REACT_APP_VERTEX_AI_PROJECT_ID || '',
+        location: process.env.REACT_APP_VERTEX_AI_LOCATION || 'us-central1',
       });
 
+      const model = 'gemini-1.5-pro-preview-0409';
+
+      const generativeModel = vertex_ai.getGenerativeModel({
+        model: model,
+        systemInstruction: {
+          parts: [{
+            text: SYSTEM_INSTRUCTION
+          }]
+        }
+      });
+
+      const result = await generativeModel.generateContent(`Analyze this startup idea and generate a comprehensive strategic document:\n\n${idea}`);
+      const response = await result.response;
+      const text = response.candidates[0].content.parts[0].text;
+
+
       setThinkingTime(Math.round((Date.now() - startTime) / 1000));
-      setStrategy(response.text || "No strategy generated.");
+      setStrategy(text || "No strategy generated.");
     } catch (err) {
       console.error(err);
-      setStrategy("Error generating strategy. Please check your API key.");
+      setStrategy("Error generating strategy. Please check your API key and project configuration.");
     } finally {
       setLoading(false);
     }
@@ -135,12 +146,11 @@ const StrategyRoom: React.FC = () => {
             <BookOpen className="w-6 h-6 text-blue-400" />
             <h2 className="text-2xl font-bold gradient-text">Strategy Room</h2>
             <span className="px-2 py-1 bg-purple-500/20 text-purple-400 text-xs font-bold rounded-full border border-purple-500/30">
-              Gemini 3 Pro
+              Gemini 1.5 Pro
             </span>
           </div>
           <p className="text-gray-400 text-sm">
-            Deep strategic analysis powered by Gemini 3 Pro's advanced reasoning
-            with extended thinking.
+            Deep strategic analysis powered by Gemini 1.5 Pro's advanced reasoning.
           </p>
           <div className="relative">
             <textarea
@@ -181,12 +191,10 @@ const StrategyRoom: React.FC = () => {
             </div>
           </div>
           <h3 className="text-xl font-bold text-purple-400">
-            Gemini 3 Pro is Thinking...
+            Gemini 1.5 Pro is Thinking...
           </h3>
           <p className="text-gray-400 text-sm max-w-md mx-auto">
-            Running deep strategic analysis with extended reasoning. This uses
-            Gemini's thinking budget to simulate market conditions and
-            competitor responses.
+            Running deep strategic analysis.
           </p>
           <div className="flex justify-center gap-1">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -210,7 +218,7 @@ const StrategyRoom: React.FC = () => {
               </span>
             </div>
             <span className="text-xs text-gray-500">
-              Generated in {thinkingTime}s with extended thinking
+              Generated in {thinkingTime}s
             </span>
           </div>
           <div className="prose prose-invert max-w-none">
@@ -226,7 +234,7 @@ const StrategyRoom: React.FC = () => {
             <p className="text-xl font-medium">Strategy Engine</p>
             <p className="text-sm max-w-md">
               Get comprehensive Lean Canvas, GTM strategy, risk assessment, and
-              financial model proxies powered by Gemini 3 Pro's deep reasoning.
+              financial model proxies powered by Gemini 1.5 Pro's deep reasoning.
             </p>
           </div>
         </div>

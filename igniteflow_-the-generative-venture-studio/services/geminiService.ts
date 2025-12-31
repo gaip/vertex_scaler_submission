@@ -1,58 +1,52 @@
 
-import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
+import { VertexAI, GoogleSearchRetrieval } from '@google-cloud/vertexai';
 
-const getAI = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+const getAI = () => {
+  return new VertexAI({
+    project: process.env.REACT_APP_VERTEX_AI_PROJECT_ID || '',
+    location: process.env.REACT_APP_VERTEX_AI_LOCATION || 'us-central1',
+  });
+};
+
+const getGenerativeModel = (modelName: string, tools?: any[]) => {
+    const vertex_ai = getAI();
+    return vertex_ai.getGenerativeModel({
+        model: modelName,
+        tools: tools
+    });
+}
 
 export const conductMarketResearch = async (query: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash",
-    contents: `Conduct a deep competitive analysis and market size estimation for the following startup idea: ${query}. Focus on current trends (2024-2025).`,
-    config: {
-      tools: [{ googleSearch: {} }],
-    },
-  });
+  const generativeModel = getGenerativeModel('gemini-1.5-flash-preview-0409', [new GoogleSearchRetrieval()]);
 
-  const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
-    ?.map((chunk: any) => chunk.web)
-    .filter((web: any) => web)
-    .map((web: any) => ({ title: web.title, uri: web.uri })) || [];
+  const result = await generativeModel.generateContent(`Conduct a deep competitive analysis and market size estimation for the following startup idea: ${query}. Focus on current trends (2024-2025).`);
+  const response = await result.response;
+  const text = response.candidates[0].content.parts[0].text;
+  const sources = response.candidates[0].groundingMetadata.groundingAttributions.map((attribution: any) => ({
+      title: attribution.web.title,
+      uri: attribution.web.uri
+  }));
+
 
   return {
-    analysis: response.text,
-    sources
+    analysis: text,
+    sources: sources
   };
 };
 
 export const generateStartupStrategy = async (idea: string) => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: "gemini-3-pro",
-    contents: `Generate a detailed Lean Canvas, GTM strategy, and potential pitfalls for: ${idea}`,
-    config: {
-      thinkingConfig: { thinkingBudget: 2000 },
-      maxOutputTokens: 4000
-    }
-  });
-  return response.text;
+  const generativeModel = getGenerativeModel('gemini-1.5-pro-preview-0409');
+
+  const result = await generativeModel.generateContent(`Generate a detailed Lean Canvas, GTM strategy, and potential pitfalls for: ${idea}`);
+  const response = await result.response;
+  return response.candidates[0].content.parts[0].text;
 };
 
 export const generateBrandAsset = async (prompt: string, aspectRatio: "1:1" | "16:9" | "9:16" = "1:1") => {
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
-    contents: {
-      parts: [{ text: `Professional startup logo or product mockup: ${prompt}. High-end tech aesthetic, clean, modern.` }],
-    },
-    config: {
-      imageConfig: { aspectRatio }
-    },
-  });
+  const generativeModel = getGenerativeModel('imagen-3.0-generate-image');
 
-  for (const part of response.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
-    }
-  }
-  return null;
+  const result = await generativeModel.generateContent(`Professional startup logo or product mockup: ${prompt}. High-end tech aesthetic, clean, modern.`);
+  const response = await result.response;
+  const image = response.candidates[0].content.parts[0].fileData;
+  return `data:${image.mimeType};base64,${image.data}`;
 };
