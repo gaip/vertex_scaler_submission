@@ -1,18 +1,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { GoogleGenAI, Modality, LiveServerMessage } from '@google/genai';
-import { Mic, MicOff, Play, Square, Loader2, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Play, Square, Loader2 } from 'lucide-react';
 
 // PCM Helper Functions
-function encode(bytes: Uint8Array) {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
 function decode(base64: string) {
   const binaryString = atob(base64);
   const len = binaryString.length;
@@ -26,140 +16,98 @@ function decode(base64: string) {
 async function decodeAudioData(
   data: Uint8Array,
   ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
 ): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
-  const frameCount = dataInt16.length / numChannels;
-  const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-  for (let channel = 0; channel < numChannels; channel++) {
-    const channelData = buffer.getChannelData(channel);
-    for (let i = 0; i < frameCount; i++) {
-      channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-    }
-  }
-  return buffer;
+    return await ctx.decodeAudioData(data.buffer);
 }
+
+
+const useWebSocket = (url: string) => {
+    const [socket, setSocket] = useState<WebSocket | null>(null);
+    const [lastMessage, setLastMessage] = useState<any>(null);
+
+    useEffect(() => {
+        const ws = new WebSocket(url);
+        ws.onopen = () => setSocket(ws);
+        ws.onmessage = (event) => setLastMessage(JSON.parse(event.data));
+        return () => {
+            ws.close();
+        };
+    }, [url]);
+
+    const sendMessage = (message: any) => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(message);
+        }
+    };
+
+    return { sendMessage, lastMessage };
+};
+
 
 const PitchLab: React.FC = () => {
   const [isActive, setIsActive] = useState(false);
-  const [transcriptions, setTranscriptions] = useState<{role: 'user' | 'ai', text: string}[]>([]);
+  const [transcriptions, setTranscriptions] = useState<{role: 'user' | 'model', text: string}[]>([]);
   const [loading, setLoading] = useState(false);
   
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const outAudioContextRef = useRef<AudioContext | null>(null);
-  const sessionRef = useRef<any>(null);
-  const nextStartTimeRef = useRef(0);
-  const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const { sendMessage, lastMessage } = useWebSocket("ws://localhost:8765");
 
-  const createBlob = (data: Float32Array) => {
-    const l = data.length;
-    const int16 = new Int16Array(l);
-    for (let i = 0; i < l; i++) {
-      int16[i] = data[i] * 32768;
-    }
-    return {
-      data: encode(new Uint8Array(int16.buffer)),
-      mimeType: 'audio/pcm;rate=16000',
-    };
-  };
+  useEffect(() => {
+      if(lastMessage) {
+          if (lastMessage.text) {
+            setTranscriptions(prev => [...prev, { role: 'model', text: lastMessage.text }]);
+          } else if (lastMessage.audio) {
+              if(!audioContextRef.current) {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+              }
+              const audioData = decode(lastMessage.audio);
+              decodeAudioData(audioData, audioContextRef.current).then(audioBuffer => {
+                const source = audioContextRef.current!.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(audioContextRef.current!.destination);
+                source.start();
+              })
+          }
+      }
+  }, [lastMessage])
 
   const stopSession = useCallback(() => {
-    if (sessionRef.current) {
-      sessionRef.current.close();
-      sessionRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
     }
     setIsActive(false);
+    setLoading(false);
   }, []);
 
   const startSession = async () => {
     setLoading(true);
+    setTranscriptions([]);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
-      outAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      const sessionPromise = ai.live.connect({
-        model: 'gemini-live-2.5-flash-native-audio',
-        callbacks: {
-          onopen: () => {
-            setLoading(false);
-            setIsActive(true);
-            const source = audioContextRef.current!.createMediaStreamSource(stream);
-            const scriptProcessor = audioContextRef.current!.createScriptProcessor(4096, 1, 1);
-            
-            scriptProcessor.onaudioprocess = (e) => {
-              const inputData = e.inputBuffer.getChannelData(0);
-              const pcmBlob = createBlob(inputData);
-              sessionPromise.then(session => {
-                session.sendRealtimeInput({ media: pcmBlob });
-              });
-            };
-            
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(audioContextRef.current!.destination);
-          },
-          onmessage: async (message: LiveServerMessage) => {
-            if (message.serverContent?.modelTurn?.parts[0]?.inlineData?.data) {
-              const base64Audio = message.serverContent.modelTurn.parts[0].inlineData.data;
-              const outCtx = outAudioContextRef.current!;
-              
-              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, outCtx.currentTime);
-              const audioBuffer = await decodeAudioData(decode(base64Audio), outCtx, 24000, 1);
-              
-              const source = outCtx.createBufferSource();
-              source.buffer = audioBuffer;
-              source.connect(outCtx.destination);
-              source.start(nextStartTimeRef.current);
-              nextStartTimeRef.current += audioBuffer.duration;
-              sourcesRef.current.add(source);
-              source.onended = () => sourcesRef.current.delete(source);
-            }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        mediaRecorderRef.current = mediaRecorder;
 
-            if (message.serverContent?.interrupted) {
-              sourcesRef.current.forEach(s => s.stop());
-              sourcesRef.current.clear();
-              nextStartTimeRef.current = 0;
+        mediaRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+                sendMessage(event.data)
             }
+        };
 
-            if (message.serverContent?.outputTranscription) {
-              const text = message.serverContent.outputTranscription.text;
-              setTranscriptions(prev => [...prev.slice(0, -1), {role: 'ai', text: (prev[prev.length-1]?.role === 'ai' ? prev[prev.length-1].text : '') + text}]);
-            }
-            if (message.serverContent?.inputTranscription) {
-              const text = message.serverContent.inputTranscription.text;
-              setTranscriptions(prev => [...prev.slice(0, -1), {role: 'user', text: (prev[prev.length-1]?.role === 'user' ? prev[prev.length-1].text : '') + text}]);
-            }
-            if (message.serverContent?.turnComplete) {
-                // Prepare for next turn if needed
-            }
-          },
-          onerror: (e) => console.error("Live Error", e),
-          onclose: () => setIsActive(false),
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } },
-          systemInstruction: "You are a tough but constructive Venture Capitalist investor from Sequoia. The user is pitching their startup. Challenge their assumptions, ask about CAC/LTV, and give feedback on their presentation style. Be very interactive and conversational.",
-          outputAudioTranscription: {},
-          inputAudioTranscription: {},
-        }
-      });
+        sendMessage(JSON.stringify({
+            system_instruction: "You are a tough but constructive Venture Capitalist investor from Sequoia. The user is pitching their startup. Challenge their assumptions, ask about CAC/LTV, and give feedback on their presentation style. Be very interactive and conversational."
+        }))
 
-      sessionRef.current = await sessionPromise;
+        mediaRecorder.start(1000); // Send data every 1 second
+        setIsActive(true);
+        setLoading(false);
+
     } catch (err) {
       console.error(err);
       setLoading(false);
     }
   };
+
 
   return (
     <div className="flex flex-col h-full space-y-4">
